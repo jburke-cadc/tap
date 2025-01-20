@@ -155,7 +155,7 @@ public class YoucatInitAction extends InitAction {
             // tap_schema
             log.info("InitDatabaseTS: START");
             DataSource tapadm = DBUtil.findJNDIDataSource("jdbc/tapadm");
-            InitDatabaseTS tsi = new InitDatabaseTS(tapadm, null, "tap_schema");
+            InitDatabaseTS tsi = new InitYoucatTS(tapadm, null, "tap_schema");
             tsi.doInit();
             log.info("InitDatabaseTS: OK");
             

@@ -142,6 +142,7 @@ abstract class AbstractTablesTest {
     URL certUpdateURL;
     URL certLoadURL;
     URL permsURL;
+    URL descriptorsURL;
     
     AbstractTablesTest() { 
         try {
@@ -170,6 +171,7 @@ abstract class AbstractTablesTest {
                 certUpdateURL = reg.getServiceURL(Constants.RESOURCE_ID, Standards.PROTO_TABLE_UPDATE_ASYNC, AuthMethod.CERT);
                 certLoadURL = reg.getServiceURL(Constants.RESOURCE_ID, Standards.PROTO_TABLE_LOAD_SYNC, AuthMethod.CERT);
                 permsURL = reg.getServiceURL(Constants.RESOURCE_ID, Standards.PROTO_TABLE_PERMISSIONS, AuthMethod.CERT);
+                descriptorsURL = reg.getServiceURL(Constants.RESOURCE_ID, Standards.PROTO_SERVICE_DESCRIPTORS, AuthMethod.CERT);
             } catch (Exception ex) {
                 log.error("TEST SETUP BUG: failed to find TAP URL", ex);
             }
