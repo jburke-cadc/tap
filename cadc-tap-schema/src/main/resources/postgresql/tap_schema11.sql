@@ -15,7 +15,7 @@ create table tap_schema.schemas11
         schema_index  integer,
 	
 -- extension: permissions for user-created content
-    owner_id        varchar(32),
+    owner_id        varchar(256),
     read_anon       integer,
     read_only_group  varchar(128),
     read_write_group varchar(128),
@@ -38,7 +38,7 @@ create table tap_schema.tables11
 	table_index   integer,
 
 -- extension: permissions for user-created content
-    owner_id        varchar(32),
+    owner_id        varchar(256),
     read_anon       integer,
     read_only_group  varchar(128),
     read_write_group varchar(128),
@@ -75,7 +75,7 @@ create table tap_schema.columns11
     column_id     varchar(32),
 	
 -- extension: permissions for user-created content
-    owner_id        varchar(32),
+    owner_id        varchar(256),
     read_anon       integer,
     read_only_group  varchar(128),
     read_write_group varchar(128),
@@ -83,6 +83,11 @@ create table tap_schema.columns11
 	primary key (table_name,column_name),
 	foreign key (table_name) references tap_schema.tables11 (table_name)
 )
+;
+
+create unique index columns_column_id
+    on tap_schema.columns11 (column_id)
+    where column_id is not null
 ;
 
 create table tap_schema.keys11
