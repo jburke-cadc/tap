@@ -73,10 +73,10 @@ import ca.nrc.cadc.db.DBUtil;
 import ca.nrc.cadc.db.DatabaseTransactionManager;
 import ca.nrc.cadc.db.version.KeyValue;
 import ca.nrc.cadc.net.ResourceNotFoundException;
-import ca.nrc.cadc.util.StringUtil;
 import java.net.HttpURLConnection;
 import javax.sql.DataSource;
 import org.apache.log4j.Logger;
+import org.opencadc.datalink.ServiceDescriptorTemplate;
 
 public class DeleteAction extends DescriptorAction {
     private static final Logger log = Logger.getLogger(DeleteAction.class);
@@ -87,21 +87,15 @@ public class DeleteAction extends DescriptorAction {
 
     @Override
     public void doAction() throws Exception {
+        // get the request user and path
+        String requestPath = getRequestPath();
+        String user = getRequestUser();
 
-        // get the descriptor name
-        String name = syncInput.getPath();
-        if (!StringUtil.hasText(name)) {
-            throw new IllegalArgumentException("Expected path of descriptor name, found: " + name);
-        }
-        if (name.split("/").length != 1) {
-            throw new IllegalArgumentException("Expected single path component, found: " + name);
-        }
-        log.debug("name: " + name);
-
-        // get the existing descriptor
-        KeyValue keyValue = keyValueDAO.get(name);
+        // check for an existing descriptor
+        String key = ServiceDescriptorTemplate.generateKey(requestPath, user);
+        KeyValue keyValue = keyValueDAO.get(key);
         if (keyValue == null) {
-            throw new ResourceNotFoundException("Descriptor not found: " + name);
+            throw new ResourceNotFoundException("descriptor not found: " + requestPath);
         }
 
         // delete the descriptor
@@ -110,26 +104,26 @@ public class DeleteAction extends DescriptorAction {
 
         try {
             txn.startTransaction();
-            keyValueDAO.delete(name);
+            keyValueDAO.delete(key);
             this.syncOutput.setCode(HttpURLConnection.HTTP_OK);
             txn.commitTransaction();
         } catch (Exception e) {
-            log.debug("Error deleting descriptor ID:" + name, e);
+            log.debug("error deleting descriptor:" + key, e);
             if (txn.isOpen()) {
                 try {
                     txn.rollbackTransaction();
                 } catch (Exception ex) {
-                    log.error("Error rolling back transaction", ex);
+                    log.error("error rolling back transaction", ex);
                 }
             }
-            throw new RuntimeException("Error deleting descriptor:" + name, e);
+            throw new RuntimeException("error deleting descriptor:" + key, e);
         } finally {
             if (txn.isOpen()) {
                 log.debug("transaction open in finally");
                 try {
                     txn.rollbackTransaction();
                 } catch (Exception ex) {
-                    log.error("Error rolling back transaction", ex);
+                    log.error("error rolling back transaction", ex);
                 }
             }
         }

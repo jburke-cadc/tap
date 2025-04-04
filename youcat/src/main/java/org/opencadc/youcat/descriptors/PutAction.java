@@ -69,13 +69,12 @@
 
 package org.opencadc.youcat.descriptors;
 
-import ca.nrc.cadc.dali.tables.votable.VOTableDocument;
 import ca.nrc.cadc.db.DBUtil;
 import ca.nrc.cadc.db.DatabaseTransactionManager;
 import ca.nrc.cadc.db.version.KeyValue;
 import ca.nrc.cadc.net.ResourceAlreadyExistsException;
-import ca.nrc.cadc.util.StringUtil;
 import java.net.HttpURLConnection;
+import java.security.AccessControlException;
 import javax.sql.DataSource;
 import org.apache.log4j.Logger;
 import org.opencadc.datalink.ServiceDescriptorTemplate;
@@ -89,56 +88,52 @@ public class PutAction extends DescriptorAction {
 
     @Override
     public void doAction() throws Exception {
-
-        // the path is the descriptor name
-        String name = syncInput.getPath();
-        if (!StringUtil.hasText(name)) {
-            throw new IllegalArgumentException("Expected path of descriptor name, found: " + name);
-        }
-        if (name.split("/").length != 1) {
-            throw new IllegalArgumentException("Expected single path component, found: " + name);
-        }
-        log.debug("name: " + name);
+        // get the request user and path
+        String requestPath = getRequestPath();
+        String requestUser = getRequestUser();
 
         // check for an existing descriptor
-        KeyValue keyValue = keyValueDAO.get(name);
+        String key = ServiceDescriptorTemplate.generateKey(requestPath, requestUser);
+        KeyValue keyValue = keyValueDAO.get(key);
         if (keyValue != null) {
-            throw new ResourceAlreadyExistsException("Found existing descriptor: " + name);
+            throw new ResourceAlreadyExistsException("found existing descriptor: " + requestPath);
         }
 
-        // Create a ServiceDescriptorTemplate to validate the VOTable
-        VOTableDocument document = getVOTableDocument();
-        String votable = document2String(document);
-        ServiceDescriptorTemplate serviceDescriptor = new ServiceDescriptorTemplate(name, votable);
+        // Create a ServiceDescriptorTemplate to validate the descriptor VOTable
+        String votable = getVOTableFromRequest();
+        ServiceDescriptorTemplate descriptor = new ServiceDescriptorTemplate(requestPath, requestUser, votable);
+
+        // check is the caller owns the table.column referenced in the descriptor
+        if (!userOwnsDescriptor(requestUser, descriptor.getIdentifiers())) {
+            throw new AccessControlException("user does not own tables referenced by identifiers in the descriptor");
+        }
 
         // create the descriptor
-        DataSource dataSource = DBUtil.findJNDIDataSource("jdbc/tapadm");
-        DatabaseTransactionManager txn = new DatabaseTransactionManager(dataSource);
-
+        DatabaseTransactionManager txn = new DatabaseTransactionManager(getAdminDataSource());
         try {
             txn.startTransaction();
-            keyValue = new KeyValue(name);
-            keyValue.value = votable;
+            keyValue = new KeyValue(descriptor.getKey());
+            keyValue.value = descriptor.getTemplate();
             keyValueDAO.put(keyValue);
             this.syncOutput.setCode(HttpURLConnection.HTTP_CREATED);
             txn.commitTransaction();
         } catch (Exception e) {
-            log.debug("Error creating descriptor:" + name, e);
+            log.debug("error creating descriptor:" + key, e);
             if (txn.isOpen()) {
                 try {
                     txn.rollbackTransaction();
                 } catch (Exception ex) {
-                    log.error("Error rolling back transaction", ex);
+                    log.error("error rolling back transaction", ex);
                 }
             }
-            throw new RuntimeException("Error creating descriptor:" + name, e);
+            throw new RuntimeException("error creating descriptor:" + key, e);
         } finally {
             if (txn.isOpen()) {
                 log.debug("transaction open in finally");
                 try {
                     txn.rollbackTransaction();
                 } catch (Exception ex) {
-                    log.error("Error rolling back transaction", ex);
+                    log.error("error rolling back transaction", ex);
                 }
             }
         }

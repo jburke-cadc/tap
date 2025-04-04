@@ -69,21 +69,28 @@
 
 package org.opencadc.youcat.descriptors;
 
+import ca.nrc.cadc.auth.AuthenticationUtil;
+import ca.nrc.cadc.auth.IdentityManager;
 import ca.nrc.cadc.dali.tables.votable.VOTableDocument;
-import ca.nrc.cadc.dali.tables.votable.VOTableInfo;
-import ca.nrc.cadc.dali.tables.votable.VOTableResource;
 import ca.nrc.cadc.dali.tables.votable.VOTableWriter;
 import ca.nrc.cadc.db.DBUtil;
 import ca.nrc.cadc.db.version.KeyValueDAO;
 import ca.nrc.cadc.rest.InlineContentHandler;
 import ca.nrc.cadc.rest.RestAction;
-import ca.nrc.cadc.util.StringUtil;
+import ca.nrc.cadc.tap.schema.ColumnDesc;
+import ca.nrc.cadc.tap.schema.SchemaDesc;
+import ca.nrc.cadc.tap.schema.TableDesc;
+import ca.nrc.cadc.tap.schema.TapPermissions;
+import ca.nrc.cadc.tap.schema.TapSchema;
+import ca.nrc.cadc.tap.schema.TapSchemaDAO;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.List;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
 import org.apache.log4j.Logger;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 public abstract class DescriptorAction extends RestAction {
     private static final Logger log = Logger.getLogger(DescriptorAction.class);
@@ -98,13 +105,8 @@ public abstract class DescriptorAction extends RestAction {
     }
 
     private void init() {
-        try {
-            DataSource tapadm = DBUtil.findJNDIDataSource("jdbc/tapadm");
-            this.keyValueDAO = new KeyValueDAO(tapadm, null, "tap_schema", ServiceDescriptors.class);
-        } catch (NamingException e) {
-            log.error("Error initializing KeyValueDAO", e);
-            throw new IllegalStateException("Error initializing KeyValueDAO", e);
-        }
+        DataSource admin = getAdminDataSource();
+        this.keyValueDAO = new KeyValueDAO(admin, null, "tap_schema", ServiceDescriptors.class);
     }
 
     @Override
@@ -112,37 +114,66 @@ public abstract class DescriptorAction extends RestAction {
         return new DescriptorInlineContentHandler();
     }
 
-    protected VOTableDocument getVOTableDocument() {
+    protected String getRequestPath() {
+        String path = syncInput.getPath();
+        log.debug("request path: " + path);
+        return path;
+    }
+
+    protected String getRequestUser() {
+        IdentityManager identityManager = AuthenticationUtil.getIdentityManager();
+        Object owner = identityManager.toOwner(AuthenticationUtil.getCurrentSubject());
+        log.debug("request user: " + owner);
+        return owner.toString();
+    }
+
+    protected String getVOTableFromRequest() throws IOException {
         VOTableDocument document = (VOTableDocument) syncInput.getContent(DescriptorInlineContentHandler.CONTENT_KEY);
         if (document == null) {
             throw new IllegalArgumentException("No VOTable content found in the request");
         }
-        return document;
-    }
-
-    protected String getDescriptorID(VOTableDocument document) {
-        List<VOTableResource> resources = document.getResources();
-        if (resources.size() != 1) {
-            throw new IllegalArgumentException("Expected 1 VOTable resource element, found: " + resources.size());
-        }
-
-        List<VOTableInfo> infos = resources.get(0).getInfos();
-        if (infos.size() != 1) {
-            throw new IllegalArgumentException("Expected 1 VOTable info element, found: " + infos.size());
-        }
-
-        String value = infos.get(0).getValue();
-        if (!StringUtil.hasText(value)) {
-            throw new IllegalArgumentException("VOTable info value is empty");
-        }
-        return value;
-    }
-
-    protected String document2String(VOTableDocument document) throws IOException {
         StringWriter stringWriter = new StringWriter();
         VOTableWriter writer = new VOTableWriter();
         writer.write(document, stringWriter);
         return stringWriter.toString();
+    }
+
+    protected DataSource getAdminDataSource() {
+        try {
+            return DBUtil.findJNDIDataSource("jdbc/tapadm");
+        } catch (NamingException e) {
+            log.error("Error initializing admin DataSource", e);
+            throw new IllegalStateException("Error initializing admin DataSource", e);
+        }
+    }
+
+    protected DataSource getQueryDataSource() {
+        try {
+            return DBUtil.findJNDIDataSource("jdbc/tapuser");
+        } catch (NamingException e) {
+            log.error("Error initializing query DataSource", e);
+            throw new IllegalStateException("Error initializing query DataSource", e);
+        }
+    }
+
+    protected boolean userOwnsDescriptor(String userID, List<String> descriptorIDs) {
+        List<String> owned = new ArrayList<>();
+        IdentityManager identityManager = AuthenticationUtil.getIdentityManager();
+        TapSchemaDAO tapSchemaDAO = new TapSchemaDAO();
+        tapSchemaDAO.setDataSource(getQueryDataSource());
+        SchemaDesc schemaDesc = tapSchemaDAO.getSchema("tap_schema", 1);
+        for (TableDesc tableDesc : schemaDesc.getTableDescs()) {
+            for (ColumnDesc columnDesc : tableDesc.getColumnDescs()) {
+                if (descriptorIDs.contains(columnDesc.column_id)) {
+                    TapPermissions tapPermissions = tableDesc.tapPermissions;
+                    Object tableOwner = identityManager.toOwner(tapPermissions.owner);
+                    if (userID.equals(tableOwner)) {
+                        owned.add(columnDesc.column_id);
+                    }
+                }
+            }
+        }
+        return descriptorIDs.size() == owned.size();
     }
 
 }

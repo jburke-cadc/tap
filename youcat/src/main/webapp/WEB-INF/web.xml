@@ -189,6 +189,28 @@
         <load-on-startup>3</load-on-startup>
     </servlet>
 
+    <servlet>
+        <servlet-name>DescriptorsServlet</servlet-name>
+        <servlet-class>ca.nrc.cadc.rest.RestServlet</servlet-class>
+        <init-param>
+            <param-name>get</param-name>
+            <param-value>org.opencadc.youcat.descriptors.GetAction</param-value>
+        </init-param>
+        <init-param>
+            <param-name>post</param-name>
+            <param-value>org.opencadc.youcat.descriptors.PostAction</param-value>
+        </init-param>
+        <init-param>
+            <param-name>put</param-name>
+            <param-value>org.opencadc.youcat.descriptors.PutAction</param-value>
+        </init-param>
+        <init-param>
+            <param-name>delete</param-name>
+            <param-value>org.opencadc.youcat.descriptors.DeleteAction</param-value>
+        </init-param>
+        <load-on-startup>3</load-on-startup>
+    </servlet>
+
     <servlet-mapping>
         <servlet-name>AsyncQueryServlet</servlet-name>
         <url-pattern>/async/*</url-pattern>
@@ -212,6 +234,10 @@
     <servlet-mapping>
         <servlet-name>SyncLoadServlet</servlet-name>
         <url-pattern>/load/*</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>DescriptorsServlet</servlet-name>
+        <url-pattern>/descriptors/*</url-pattern>
     </servlet-mapping>
 
     <!-- base service -->

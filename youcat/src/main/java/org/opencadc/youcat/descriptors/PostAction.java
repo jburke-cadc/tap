@@ -69,15 +69,15 @@
 
 package org.opencadc.youcat.descriptors;
 
-import ca.nrc.cadc.dali.tables.votable.VOTableDocument;
 import ca.nrc.cadc.db.DBUtil;
 import ca.nrc.cadc.db.DatabaseTransactionManager;
 import ca.nrc.cadc.db.version.KeyValue;
 import ca.nrc.cadc.net.ResourceNotFoundException;
-import ca.nrc.cadc.util.StringUtil;
 import java.net.HttpURLConnection;
+import java.security.AccessControlException;
 import javax.sql.DataSource;
 import org.apache.log4j.Logger;
+import org.opencadc.datalink.ServiceDescriptorTemplate;
 
 public class PostAction extends DescriptorAction {
     private static final Logger log = Logger.getLogger(PostAction.class);
@@ -88,51 +88,52 @@ public class PostAction extends DescriptorAction {
 
     @Override
     public void doAction() throws Exception {
+        // get the request user and path
+        String requestPath = getRequestPath();
+        String requestUser = getRequestUser();
 
-        // build the descriptor key
-        String name = syncInput.getPath();
-        if (!StringUtil.hasText(name)) {
-            throw new IllegalArgumentException("Expected descriptor name, found: " + name);
-        }
-        if (name.split("/").length != 1) {
-            throw new IllegalArgumentException("Expected single name component, found: " + name);
-        }
-        log.debug("name: " + name);
-
-        // get the existing descriptor
-        KeyValue keyValue = keyValueDAO.get(name);
+        // check for an existing descriptor
+        String key = ServiceDescriptorTemplate.generateKey(requestPath, requestUser);
+        KeyValue keyValue = keyValueDAO.get(key);
         if (keyValue == null) {
-            throw new ResourceNotFoundException("Descriptor not found: " + name);
+            throw new ResourceNotFoundException("descriptor not found: " + requestPath);
+        }
+
+        // Create a ServiceDescriptorTemplate to validate the posted VOTable
+        String votable = getVOTableFromRequest();
+        ServiceDescriptorTemplate descriptor = new ServiceDescriptorTemplate(requestPath, requestUser, votable);
+
+        // check is the user owns the table.column referenced in the descriptor
+        if (!userOwnsDescriptor(requestUser, descriptor.getIdentifiers())) {
+            throw new AccessControlException("user does not own tables referenced by identifiers in the descriptor");
         }
 
         // update the descriptor
-        DataSource dataSource = DBUtil.findJNDIDataSource("jdbc/tapadm");
-        DatabaseTransactionManager txn = new DatabaseTransactionManager(dataSource);
+        DatabaseTransactionManager txn = new DatabaseTransactionManager(getAdminDataSource());
 
         try {
             txn.startTransaction();
-            VOTableDocument document = getVOTableDocument();
-            keyValue.value = document2String(document);
+            keyValue.value = descriptor.getTemplate();
             keyValueDAO.put(keyValue);
             this.syncOutput.setCode(HttpURLConnection.HTTP_OK);
             txn.commitTransaction();
         } catch (Exception e) {
-            log.debug("Error updating descriptor:" + name, e);
+            log.debug("error updating descriptor:" + requestPath, e);
             if (txn.isOpen()) {
                 try {
                     txn.rollbackTransaction();
                 } catch (Exception ex) {
-                    log.error("Error rolling back transaction", ex);
+                    log.error("error rolling back transaction", ex);
                 }
             }
-            throw new RuntimeException("Error updating descriptor ID:" + name, e);
+            throw new RuntimeException("error updating descriptor ID:" + requestPath, e);
         } finally {
             if (txn.isOpen()) {
                 log.debug("transaction open in finally");
                 try {
                     txn.rollbackTransaction();
                 } catch (Exception ex) {
-                    log.error("Error rolling back transaction", ex);
+                    log.error("error rolling back transaction", ex);
                 }
             }
         }

@@ -69,12 +69,15 @@
 
 package org.opencadc.youcat.descriptors;
 
+import ca.nrc.cadc.dali.tables.votable.VOTableDocument;
+import ca.nrc.cadc.dali.tables.votable.VOTableReader;
+import ca.nrc.cadc.dali.tables.votable.VOTableWriter;
 import ca.nrc.cadc.db.version.KeyValue;
 import ca.nrc.cadc.net.ResourceNotFoundException;
-import ca.nrc.cadc.util.StringUtil;
 import java.net.HttpURLConnection;
-import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.apache.log4j.Logger;
+import org.opencadc.datalink.ServiceDescriptorTemplate;
 
 public class GetAction extends DescriptorAction {
     private static final Logger log = Logger.getLogger(GetAction.class);
@@ -85,24 +88,39 @@ public class GetAction extends DescriptorAction {
 
     @Override
     public void doAction() throws Exception {
+        // get the request user and path
+        String requestPath = getRequestPath();
+        String requestUser = getRequestUser();
+        VOTableDocument votable = new VOTableDocument();
+        VOTableReader reader = new VOTableReader();
 
-        // get the descriptor name
-        String name = syncInput.getPath();
-        if (!StringUtil.hasText(name)) {
-            throw new IllegalArgumentException("Expected path of descriptor name, found: " + name);
+        // descriptor name is null, return all descriptors owned by the user
+        if (requestPath == null) {
+            List<KeyValue> keyValues = keyValueDAO.list();
+            for (KeyValue keyValue : keyValues) {
+                ServiceDescriptorTemplate.Key key = ServiceDescriptorTemplate.parseKey(keyValue.getName());
+                if (key.owner.equals(requestUser)) {
+                    ServiceDescriptorTemplate descriptor = new ServiceDescriptorTemplate(key.name, key.owner, keyValue.value);
+                    VOTableDocument doc = reader.read(descriptor.getTemplate());
+                    votable.getInfos().add(doc.getInfos().get(0));
+                    votable.getResources().add(doc.getResources().get(0));
+                }
+            }
+        } else {
+            // return the descriptor with the given key owned by the user
+            String key = ServiceDescriptorTemplate.generateKey(requestPath, requestUser);
+            KeyValue keyValue = keyValueDAO.get(key);
+            if (keyValue == null) {
+                throw new ResourceNotFoundException("descriptor not found: " + requestPath);
+            }
+            ServiceDescriptorTemplate descriptor = new ServiceDescriptorTemplate(keyValue.getName(), requestUser, keyValue.value);
+            votable = reader.read(descriptor.getTemplate());
         }
-        if (name.split("/").length != 1) {
-            throw new IllegalArgumentException("Expected single path component, found: " + name);
-        }
-        log.debug("name: " + name);
 
-        KeyValue keyValue = keyValueDAO.get(name);
-        if (keyValue == null) {
-            throw new ResourceNotFoundException("descriptor not found for key: " + name);
-        }
-        this.syncOutput.setCode(HttpURLConnection.HTTP_OK);
-        this.syncOutput.addHeader("Content-Type", VOTABLE_MIME_TYPE);
-        this.syncOutput.getOutputStream().write(keyValue.value.getBytes(StandardCharsets.UTF_8));
+        syncOutput.setCode(HttpURLConnection.HTTP_OK);
+        syncOutput.addHeader("Content-Type", VOTABLE_MIME_TYPE);
+        VOTableWriter writer = new VOTableWriter();
+        writer.write(votable, syncOutput.getOutputStream());
     }
 
 }

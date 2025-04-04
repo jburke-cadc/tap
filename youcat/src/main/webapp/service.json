@@ -693,6 +693,196 @@
           }
         }
       }
+    },
+    "/descriptors": {
+      "get": {
+        "summary": "view all descriptors",
+        "tags": [
+          "Custom Features"
+        ],
+        "description": "Get a VOTable containing all descriptors with each descriptor a resource in the table",
+        "produces": [
+          "application/x-votable+xml"
+        ],
+        "responses": {
+          "200": {
+            "description": "successful request"
+          },
+          "400": {
+            "description": "invalid syntax"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Service too busy"
+          },
+          "default": {
+            "description": "Unexpected error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    },
+    "/descriptors/{name}": {
+      "get": {
+        "summary": "view a descriptor",
+        "tags": [
+          "Custom Features"
+        ],
+        "description": "Get a VOTable for a descriptor with the given name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "name of descriptor to retrieve",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "produces": [
+          "application/x-votable+xml"
+        ],
+        "responses": {
+          "200": {
+            "description": "successful request"
+          },
+          "400": {
+            "description": "invalid syntax"
+          },
+          "404": {
+            "description": "descriptor not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Service too busy"
+          },
+          "default": {
+            "description": "Unexpected error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "create a new descriptor",
+        "tags": [
+          "Custom Features"
+        ],
+        "description": "Create a new descriptor with the given name, with the descriptor value in the body of the request as a VOTable",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "the descriptor name",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "consumes": [
+          "application/x-votable+xml"
+        ],
+        "responses": {
+          "201": {
+            "description": "descriptor created"
+          },
+          "400": {
+            "description": "invalid syntax"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Service too busy"
+          },
+          "default": {
+            "description": "Unexpected error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "update an existing descriptor",
+        "tags": [
+          "Custom Features"
+        ],
+        "description": "Update an descriptor with the given name, replacing the existing descriptor value with the value in the body of the request as a VOTable",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "the descriptor name",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "consumes": [
+          "application/x-votable+xml"
+        ],
+        "responses": {
+          "200": {
+            "description": "successful request"
+          },
+          "400": {
+            "description": "invalid syntax"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Service too busy"
+          },
+          "default": {
+            "description": "Unexpected error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "delete a descriptor",
+        "tags": [
+          "Custom Features"
+        ],
+        "description": "Delete the descriptor for the given name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "the descriptor name",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful request"
+          },
+          "400": {
+            "description": "invalid syntax"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "503": {
+            "description": "Service too busy"
+          },
+          "default": {
+            "description": "Unexpected error",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {

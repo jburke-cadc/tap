@@ -71,13 +71,11 @@ package org.opencadc.youcat;
 
 import ca.nrc.cadc.auth.RunnableAction;
 import ca.nrc.cadc.dali.tables.votable.VOTableDocument;
-import ca.nrc.cadc.dali.tables.votable.VOTableField;
 import ca.nrc.cadc.dali.tables.votable.VOTableGroup;
 import ca.nrc.cadc.dali.tables.votable.VOTableInfo;
 import ca.nrc.cadc.dali.tables.votable.VOTableParam;
 import ca.nrc.cadc.dali.tables.votable.VOTableReader;
 import ca.nrc.cadc.dali.tables.votable.VOTableResource;
-import ca.nrc.cadc.dali.tables.votable.VOTableTable;
 import ca.nrc.cadc.dali.tables.votable.VOTableWriter;
 import ca.nrc.cadc.db.ConnectionConfig;
 import ca.nrc.cadc.db.DBConfig;
@@ -96,11 +94,12 @@ import javax.sql.DataSource;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-public class DescriptorsTableTest extends AbstractTablesTest {
-    static final Logger log = Logger.getLogger(DescriptorsTableTest.class);
+public class DescriptorsTest extends AbstractTablesTest {
+    static final Logger log = Logger.getLogger(DescriptorsTest.class);
 
     static {
         Log4jInit.setLevel("org.opencadc.youcat", Level.DEBUG);
@@ -113,7 +112,7 @@ public class DescriptorsTableTest extends AbstractTablesTest {
 
     final DataSource dataSource;
 
-    public DescriptorsTableTest() {
+    public DescriptorsTest() {
         try {
             DBConfig conf = new DBConfig();
             ConnectionConfig cc = conf.getConnectionConfig("YOUCAT_TEST", "cadctest");
@@ -124,38 +123,29 @@ public class DescriptorsTableTest extends AbstractTablesTest {
         }
     }
 
+    @Before
+    public void before() {
+        try {
+            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+            String delete = "DELETE FROM " + DESCRIPTORS_TABLE_NAME;
+            jdbc.execute(delete);
+            log.debug("successfully deleted from: " + DESCRIPTORS_TABLE_NAME);
+        } catch (Exception ignore) {
+            log.error("cleanup-before-test failed for " + DESCRIPTORS_TABLE_NAME);
+        }
+    }
+
     @Test
     public void testDescriptor() {
-        log.info("testDescriptor()");
         try {
-            // delete existing content
-            try {
-                String delete = "DELETE FROM " + DESCRIPTORS_TABLE_NAME;
-                JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-                jdbc.execute(delete);
-                log.info("successfully deleted from: " + DESCRIPTORS_TABLE_NAME);
-            } catch (Exception ignore) {
-                log.debug("cleanup-before-test failed for " + DESCRIPTORS_TABLE_NAME);
-            }
-
-            String descriptorName = "";
+            String descriptorName = "descriptorName";
 
             // PUT a new service descriptor
             URL testURL = new URL(String.format("%s/%s", descriptorsURL, descriptorName));
-            log.debug("test descriptor URL: " + testURL);
-            VOTableDocument expected = getServiceDescriptor();
-            VOTableWriter writer = new VOTableWriter();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            writer.write(expected, out);
-            FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
-            HttpUpload put = new HttpUpload(fileContent, testURL);
-            Subject.doAs(admin, new RunnableAction(put));
-            Assert.assertNull(put.getThrowable());
-            Assert.assertEquals(201, put.getResponseCode());
-            log.debug("created service descriptor");
+            VOTableDocument expected = putDescriptor(testURL, descriptorName);
 
             // GET the service descriptor
-            out = new ByteArrayOutputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
             HttpGet get = new HttpGet(testURL, out);
             Subject.doAs(admin, new RunnableAction(get));
             Assert.assertNull(get.getThrowable());
@@ -166,10 +156,11 @@ public class DescriptorsTableTest extends AbstractTablesTest {
             compare(expected, actual);
 
             // UPDATE the service descriptor
-            expected.getResources().get(0).getInfos().get(0).content = "new content";
+            expected.getInfos().get(0).content = "new content";
             out = new ByteArrayOutputStream();
+            VOTableWriter writer = new VOTableWriter();
             writer.write(expected, out);
-            fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
+            FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
             HttpPost post = new HttpPost(testURL, fileContent, true);
             Subject.doAs(admin, new RunnableAction(post));
             Assert.assertNull(post.getThrowable());
@@ -206,31 +197,142 @@ public class DescriptorsTableTest extends AbstractTablesTest {
         } catch (Exception t) {
             log.error("unexpected", t);
             Assert.fail("unexpected: " + t.getMessage());
-        } finally {
-            log.info("testDescriptor done");
         }
     }
 
-    VOTableDocument getServiceDescriptor() {
+    @Test
+    public void testListDescriptors() {
+        try {
+            // PUT 3 descriptors
+            putDescriptor(new URL(String.format("%s/%s", descriptorsURL, "d1")), "d1");
+            putDescriptor(new URL(String.format("%s/%s", descriptorsURL, "d2")), "d2");
+            putDescriptor(new URL(String.format("%s/%s", descriptorsURL, "d3")), "d3");
+
+            // GET the list of descriptors
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            HttpGet get = new HttpGet(descriptorsURL, out);
+            Subject.doAs(admin, new RunnableAction(get));
+            Assert.assertNull(get.getThrowable());
+            Assert.assertEquals(200, get.getResponseCode());
+            log.debug("got list of descriptors");
+            VOTableReader reader = new VOTableReader();
+            VOTableDocument actual = reader.read(out.toString(StandardCharsets.UTF_8));
+
+            Assert.assertEquals(3, actual.getResources().size());
+
+        } catch (Exception t) {
+            log.error("unexpected", t);
+            Assert.fail("unexpected: " + t.getMessage());
+        }
+    }
+
+    @Test
+    public void testInvalidDescriptorName() {
+        try {
+            // valid descriptor names are alphanumeric with dashes
+            String name = "invalid_descriptor_name";
+            URL testURL = new URL(String.format("%s/%s", descriptorsURL, name));
+            VOTableDocument expected = getServiceDescriptor(name);
+            VOTableWriter writer = new VOTableWriter();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            writer.write(expected, out);
+            FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
+            HttpUpload put = new HttpUpload(fileContent, testURL);
+            Subject.doAs(admin, new RunnableAction(put));
+            Assert.assertNotNull(put.getThrowable());
+            Assert.assertEquals(400, put.getResponseCode());
+        } catch (Exception t) {
+            log.error("unexpected", t);
+            Assert.fail("unexpected: " + t.getMessage());
+        }
+    }
+
+    @Test
+    public void testMissingDescriptorRefID() {
+        try {
+            String name = "descriptor-with-missing-id";
+            URL testURL = new URL(String.format("%s/%s", descriptorsURL, name));
+            VOTableDocument expected = getServiceDescriptor(name);
+            expected.getInfos().get(0).id = null;
+            VOTableWriter writer = new VOTableWriter();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            writer.write(expected, out);
+            FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
+            HttpUpload put = new HttpUpload(fileContent, testURL);
+            Subject.doAs(admin, new RunnableAction(put));
+            Assert.assertNotNull(put.getThrowable());
+            Assert.assertEquals(400, put.getResponseCode());
+        } catch (Exception t) {
+            log.error("unexpected", t);
+            Assert.fail("unexpected: " + t.getMessage());
+        }
+    }
+
+    @Test
+    public void testDescriptorNotFound() {
+        try {
+            String name = "descriptor-that-doesnt-exist";
+            URL testURL = new URL(String.format("%s/%s", descriptorsURL, name));
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            HttpGet get = new HttpGet(testURL, out);
+            Subject.doAs(admin, new RunnableAction(get));
+            Assert.assertNotNull(get.getThrowable());
+            Assert.assertEquals(404, get.getResponseCode());
+        } catch (Exception t) {
+            log.error("unexpected", t);
+            Assert.fail("unexpected: " + t.getMessage());
+        }
+    }
+
+    // Create a service descriptor
+     VOTableDocument getServiceDescriptor(String name) throws Exception {
+        String refID = name + "ID";
         VOTableDocument votable = new VOTableDocument();
 
-        VOTableInfo info = new VOTableInfo("name", "my test service");
-        info.id = "testID";
-        info.content = "content";
+        VOTableInfo info = new VOTableInfo("name", "something");
+        info.id = refID;
         votable.getInfos().add(info);
 
         VOTableResource resource = new VOTableResource("meta");
+        resource.utype = "adhoc:service";
         votable.getResources().add(resource);
+
+        VOTableParam standardID = new VOTableParam("standardID", "char", "*", "ivo://ivoa.net/std/DataLink#links-1.1");
+        resource.getParams().add(standardID);
+
+        VOTableParam accessURL = new VOTableParam("accessURL", "char", "*", "https://example.net/datalink/links");
+        resource.getParams().add(accessURL);
 
         VOTableGroup group = new VOTableGroup("inputParams");
         resource.getGroups().add(group);
 
-        VOTableParam param = new VOTableParam("ID", "char", "*", "");
-        param.ref = "testID";
-        param.xtype = "uri";
-        group.getParams().add(param);
+        VOTableParam id = new VOTableParam("ID", "char", "*", "");
+        id.ref = refID;
+        id.xtype = "uri";
+        group.getParams().add(id);
+
+        VOTableWriter writer = new VOTableWriter();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writer.write(votable, out);
+        log.debug(String.format("PUT descriptor: \n name: %s\n descriptor: %s", name, out.toString(StandardCharsets.UTF_8)));
 
         return votable;
+    }
+
+    // PUT a new service descriptor
+    VOTableDocument putDescriptor(URL testURL, String name) throws Exception {
+        log.debug("test descriptor URL: " + testURL);
+        VOTableDocument expected = getServiceDescriptor(name);
+        VOTableWriter writer = new VOTableWriter();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writer.write(expected, out);
+        FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
+        HttpUpload put = new HttpUpload(fileContent, testURL);
+        Subject.doAs(admin, new RunnableAction(put));
+        Assert.assertNull(put.getThrowable());
+        Assert.assertEquals(201, put.getResponseCode());
+        log.debug("created service descriptor");
+        return expected;
     }
 
     void compare(VOTableDocument expected, VOTableDocument actual) {
