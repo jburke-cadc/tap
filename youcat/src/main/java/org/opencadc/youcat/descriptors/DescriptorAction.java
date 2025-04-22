@@ -90,7 +90,6 @@ import java.util.List;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
 import org.apache.log4j.Logger;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 public abstract class DescriptorAction extends RestAction {
     private static final Logger log = Logger.getLogger(DescriptorAction.class);
@@ -161,14 +160,16 @@ public abstract class DescriptorAction extends RestAction {
         IdentityManager identityManager = AuthenticationUtil.getIdentityManager();
         TapSchemaDAO tapSchemaDAO = new TapSchemaDAO();
         tapSchemaDAO.setDataSource(getQueryDataSource());
-        SchemaDesc schemaDesc = tapSchemaDAO.getSchema("tap_schema", 1);
-        for (TableDesc tableDesc : schemaDesc.getTableDescs()) {
-            for (ColumnDesc columnDesc : tableDesc.getColumnDescs()) {
-                if (descriptorIDs.contains(columnDesc.column_id)) {
-                    TapPermissions tapPermissions = tableDesc.tapPermissions;
-                    Object tableOwner = identityManager.toOwner(tapPermissions.owner);
-                    if (userID.equals(tableOwner)) {
-                        owned.add(columnDesc.column_id);
+        TapSchema tapSchema = tapSchemaDAO.get();
+        for (SchemaDesc schemaDesc : tapSchema.getSchemaDescs()) {
+            for (TableDesc tableDesc : schemaDesc.getTableDescs()) {
+                for (ColumnDesc columnDesc : tableDesc.getColumnDescs()) {
+                    if (descriptorIDs.contains(columnDesc.columnID)) {
+                        TapPermissions tapPermissions = tapSchemaDAO.getTablePermissions(tableDesc.getTableName());
+                        Object ownerID = identityManager.toOwner(tapPermissions.owner);
+                        if (userID.equals(ownerID.toString())) {
+                            owned.add(columnDesc.columnID);
+                        }
                     }
                 }
             }

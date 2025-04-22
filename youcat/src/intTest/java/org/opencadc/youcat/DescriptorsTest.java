@@ -80,74 +80,90 @@ import ca.nrc.cadc.dali.tables.votable.VOTableWriter;
 import ca.nrc.cadc.db.ConnectionConfig;
 import ca.nrc.cadc.db.DBConfig;
 import ca.nrc.cadc.db.DBUtil;
+import ca.nrc.cadc.db.version.KeyValue;
+import ca.nrc.cadc.db.version.KeyValueDAO;
 import ca.nrc.cadc.net.FileContent;
 import ca.nrc.cadc.net.HttpDelete;
 import ca.nrc.cadc.net.HttpGet;
 import ca.nrc.cadc.net.HttpPost;
 import ca.nrc.cadc.net.HttpUpload;
+import ca.nrc.cadc.tap.schema.ColumnDesc;
+import ca.nrc.cadc.tap.schema.TableDesc;
+import ca.nrc.cadc.tap.schema.TapSchemaDAO;
 import ca.nrc.cadc.util.Log4jInit;
 import java.io.ByteArrayOutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import javax.security.auth.Subject;
 import javax.sql.DataSource;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.opencadc.youcat.descriptors.ServiceDescriptors;
 
 public class DescriptorsTest extends AbstractTablesTest {
     static final Logger log = Logger.getLogger(DescriptorsTest.class);
 
     static {
-        Log4jInit.setLevel("org.opencadc.youcat", Level.DEBUG);
-        Log4jInit.setLevel("ca.nrc.cadc.tap", Level.DEBUG);
-        Log4jInit.setLevel("ca.nrc.cadc.reg", Level.DEBUG);
+        Log4jInit.setLevel("org.opencadc.youcat", Level.INFO);
+        Log4jInit.setLevel("ca.nrc.cadc.tap", Level.INFO);
     }
 
     static final String VOTABLE_MIME_TYPE = "application/x-votable+xml";
-    static final String DESCRIPTORS_TABLE_NAME = "tap_schema.ServiceDescriptors";
 
     final DataSource dataSource;
+    final KeyValueDAO keyValueDAO;
+    final TapSchemaDAO tapSchemaDAO;
 
     public DescriptorsTest() {
+        super();
         try {
             DBConfig conf = new DBConfig();
             ConnectionConfig cc = conf.getConnectionConfig("YOUCAT_TEST", "cadctest");
             this.dataSource = DBUtil.getDataSource(cc);
             log.debug("configured data source: " + cc.getServer() + "," + cc.getDatabase() + "," + cc.getDriver() + "," + cc.getURL());
+
+            keyValueDAO = new KeyValueDAO(dataSource, null, "tap_schema", ServiceDescriptors.class);
+            tapSchemaDAO = new TapSchemaDAO();
+            tapSchemaDAO.setDataSource(dataSource);
         } catch (Throwable t) {
             throw new RuntimeException("TEST SETUP FAILED", t);
-        }
-    }
-
-    @Before
-    public void before() {
-        try {
-            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-            String delete = "DELETE FROM " + DESCRIPTORS_TABLE_NAME;
-            jdbc.execute(delete);
-            log.debug("successfully deleted from: " + DESCRIPTORS_TABLE_NAME);
-        } catch (Exception ignore) {
-            log.error("cleanup-before-test failed for " + DESCRIPTORS_TABLE_NAME);
         }
     }
 
     @Test
     public void testDescriptor() {
         try {
-            String descriptorName = "descriptorName";
+            deleteDescriptors();
+            String testTable = testSchemaName + ".testDescriptorCRUD";
+            final TableDesc orig = doCreateTable(schemaOwner, testTable);
 
-            // PUT a new service descriptor
+            // update column_id in tap_schema.columns11
+            String testColumn = "c0";
+            String descriptorName = "column0";
+            String descriptorID = "c0_id";
+            addColumnID(testTable, testColumn, descriptorID);
+
+            // PUT the service descriptor
+            VOTableDocument expected = getServiceDescriptor(descriptorID);
+            VOTableWriter writer = new VOTableWriter();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            writer.write(expected, out);
+            FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
             URL testURL = new URL(String.format("%s/%s", descriptorsURL, descriptorName));
-            VOTableDocument expected = putDescriptor(testURL, descriptorName);
+
+            HttpUpload put = new HttpUpload(fileContent, testURL);
+            Subject.doAs(schemaOwner, new RunnableAction(put));
+            Assert.assertNull(put.getThrowable());
+            Assert.assertEquals(201, put.getResponseCode());
+            log.debug("added service descriptor: " + descriptorID);
 
             // GET the service descriptor
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out = new ByteArrayOutputStream();
             HttpGet get = new HttpGet(testURL, out);
-            Subject.doAs(admin, new RunnableAction(get));
+            Subject.doAs(schemaOwner, new RunnableAction(get));
             Assert.assertNull(get.getThrowable());
             Assert.assertEquals(200, get.getResponseCode());
             log.debug("got service descriptor");
@@ -158,11 +174,11 @@ public class DescriptorsTest extends AbstractTablesTest {
             // UPDATE the service descriptor
             expected.getInfos().get(0).content = "new content";
             out = new ByteArrayOutputStream();
-            VOTableWriter writer = new VOTableWriter();
+            writer = new VOTableWriter();
             writer.write(expected, out);
-            FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
+            fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
             HttpPost post = new HttpPost(testURL, fileContent, true);
-            Subject.doAs(admin, new RunnableAction(post));
+            Subject.doAs(schemaOwner, new RunnableAction(post));
             Assert.assertNull(post.getThrowable());
             Assert.assertEquals(200, post.getResponseCode());
             log.debug("updated service descriptor");
@@ -170,7 +186,7 @@ public class DescriptorsTest extends AbstractTablesTest {
             // GET the updated service descriptor
             out = new ByteArrayOutputStream();
             get = new HttpGet(testURL, out);
-            Subject.doAs(admin, new RunnableAction(get));
+            Subject.doAs(schemaOwner, new RunnableAction(get));
             Assert.assertNull(get.getThrowable());
             Assert.assertEquals(200, get.getResponseCode());
             log.debug("got updated service descriptor");
@@ -180,7 +196,7 @@ public class DescriptorsTest extends AbstractTablesTest {
 
             // DELETE the service descriptor
             HttpDelete delete = new HttpDelete(testURL, true);
-            Subject.doAs(admin, new RunnableAction(delete));
+            Subject.doAs(schemaOwner, new RunnableAction(delete));
             Assert.assertNull(delete.getThrowable());
             Assert.assertEquals(200, delete.getResponseCode());
             out = new ByteArrayOutputStream();
@@ -189,7 +205,7 @@ public class DescriptorsTest extends AbstractTablesTest {
             // GET the deleted service descriptor
             out = new ByteArrayOutputStream();
             get = new HttpGet(testURL, out);
-            Subject.doAs(admin, new RunnableAction(get));
+            Subject.doAs(schemaOwner, new RunnableAction(get));
             Assert.assertNotNull(get.getThrowable());
             Assert.assertEquals(404, get.getResponseCode());
             log.debug("deleted service descriptor not found");
@@ -203,15 +219,24 @@ public class DescriptorsTest extends AbstractTablesTest {
     @Test
     public void testListDescriptors() {
         try {
-            // PUT 3 descriptors
-            putDescriptor(new URL(String.format("%s/%s", descriptorsURL, "d1")), "d1");
-            putDescriptor(new URL(String.format("%s/%s", descriptorsURL, "d2")), "d2");
-            putDescriptor(new URL(String.format("%s/%s", descriptorsURL, "d3")), "d3");
+            deleteDescriptors();
+            String testTable = testSchemaName + ".testListDescriptors";
+            final TableDesc orig = doCreateTable(schemaOwner, testTable);
+
+            // update column_id in tap_schema.columns11
+            addColumnID(testTable, "c1", "c1_id");
+            addColumnID(testTable, "c2", "c2_id");
+            addColumnID(testTable, "c3", "c3_id");
+
+            // add 3 descriptors
+            putDescriptor(schemaOwner, "column1", "c1_id");
+            putDescriptor(schemaOwner, "column2", "c2_id");
+            putDescriptor(schemaOwner, "column3", "c3_id");
 
             // GET the list of descriptors
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             HttpGet get = new HttpGet(descriptorsURL, out);
-            Subject.doAs(admin, new RunnableAction(get));
+            Subject.doAs(schemaOwner, new RunnableAction(get));
             Assert.assertNull(get.getThrowable());
             Assert.assertEquals(200, get.getResponseCode());
             log.debug("got list of descriptors");
@@ -219,7 +244,6 @@ public class DescriptorsTest extends AbstractTablesTest {
             VOTableDocument actual = reader.read(out.toString(StandardCharsets.UTF_8));
 
             Assert.assertEquals(3, actual.getResources().size());
-
         } catch (Exception t) {
             log.error("unexpected", t);
             Assert.fail("unexpected: " + t.getMessage());
@@ -238,7 +262,7 @@ public class DescriptorsTest extends AbstractTablesTest {
             writer.write(expected, out);
             FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
             HttpUpload put = new HttpUpload(fileContent, testURL);
-            Subject.doAs(admin, new RunnableAction(put));
+            Subject.doAs(subjectWithGroups, new RunnableAction(put));
             Assert.assertNotNull(put.getThrowable());
             Assert.assertEquals(400, put.getResponseCode());
         } catch (Exception t) {
@@ -259,7 +283,7 @@ public class DescriptorsTest extends AbstractTablesTest {
             writer.write(expected, out);
             FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
             HttpUpload put = new HttpUpload(fileContent, testURL);
-            Subject.doAs(admin, new RunnableAction(put));
+            Subject.doAs(subjectWithGroups, new RunnableAction(put));
             Assert.assertNotNull(put.getThrowable());
             Assert.assertEquals(400, put.getResponseCode());
         } catch (Exception t) {
@@ -275,7 +299,7 @@ public class DescriptorsTest extends AbstractTablesTest {
             URL testURL = new URL(String.format("%s/%s", descriptorsURL, name));
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             HttpGet get = new HttpGet(testURL, out);
-            Subject.doAs(admin, new RunnableAction(get));
+            Subject.doAs(subjectWithGroups, new RunnableAction(get));
             Assert.assertNotNull(get.getThrowable());
             Assert.assertEquals(404, get.getResponseCode());
         } catch (Exception t) {
@@ -284,9 +308,45 @@ public class DescriptorsTest extends AbstractTablesTest {
         }
     }
 
+    // delete all descriptors
+    void deleteDescriptors() {
+        List<KeyValue> keyValues = keyValueDAO.list();
+        for (KeyValue keyValue : keyValues) {
+            keyValueDAO.delete(keyValue.getName());
+        }
+    }
+
+    // add a new descriptor to the ServiceDescriptors table
+    VOTableDocument putDescriptor(Subject testSubject, String descriptorName, String descriptorID) throws Exception {
+        URL testURL = new URL(String.format("%s/%s", descriptorsURL, descriptorName));
+        log.debug("descriptor URL: " + testURL);
+
+        VOTableDocument expected = getServiceDescriptor(descriptorID);
+        VOTableWriter writer = new VOTableWriter();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writer.write(expected, out);
+        FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
+        HttpUpload put = new HttpUpload(fileContent, testURL);
+        Subject.doAs(testSubject, new RunnableAction(put));
+        Assert.assertNull(put.getThrowable());
+        Assert.assertEquals(201, put.getResponseCode());
+        log.debug("added service descriptor: " + descriptorID);
+        return expected;
+    }
+
+    // add a new row in tap_schema.columns11 for the descriptorID
+    void addColumnID(String tableName, String columnName, String columnID) {
+        ColumnDesc columnDesc = tapSchemaDAO.getColumn(tableName, columnName);
+        if (columnDesc == null) {
+            Assert.fail(String.format("expected columnDesc not found for %s.%s", tableName, columnName));
+        }
+        columnDesc.columnID = columnID;
+        tapSchemaDAO.put(columnDesc);
+        log.debug(String.format("added columnID %s to %s.%s", columnID, tableName, columnName));
+    }
+
     // Create a service descriptor
-     VOTableDocument getServiceDescriptor(String name) throws Exception {
-        String refID = name + "ID";
+     VOTableDocument getServiceDescriptor(String refID) throws Exception {
         VOTableDocument votable = new VOTableDocument();
 
         VOTableInfo info = new VOTableInfo("name", "something");
@@ -314,25 +374,7 @@ public class DescriptorsTest extends AbstractTablesTest {
         VOTableWriter writer = new VOTableWriter();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writer.write(votable, out);
-        log.debug(String.format("PUT descriptor: \n name: %s\n descriptor: %s", name, out.toString(StandardCharsets.UTF_8)));
-
         return votable;
-    }
-
-    // PUT a new service descriptor
-    VOTableDocument putDescriptor(URL testURL, String name) throws Exception {
-        log.debug("test descriptor URL: " + testURL);
-        VOTableDocument expected = getServiceDescriptor(name);
-        VOTableWriter writer = new VOTableWriter();
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        writer.write(expected, out);
-        FileContent fileContent = new FileContent(out.toByteArray(), VOTABLE_MIME_TYPE);
-        HttpUpload put = new HttpUpload(fileContent, testURL);
-        Subject.doAs(admin, new RunnableAction(put));
-        Assert.assertNull(put.getThrowable());
-        Assert.assertEquals(201, put.getResponseCode());
-        log.debug("created service descriptor");
-        return expected;
     }
 
     void compare(VOTableDocument expected, VOTableDocument actual) {

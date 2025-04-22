@@ -113,7 +113,7 @@ public class GetAction extends DescriptorAction {
             if (keyValue == null) {
                 throw new ResourceNotFoundException("descriptor not found: " + requestPath);
             }
-            ServiceDescriptorTemplate descriptor = new ServiceDescriptorTemplate(keyValue.getName(), requestUser, keyValue.value);
+            ServiceDescriptorTemplate descriptor = new ServiceDescriptorTemplate(requestPath, requestUser, keyValue.value);
             votable = reader.read(descriptor.getTemplate());
         }
 
